@@ -20,10 +20,15 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+checkpoints_normalized/
+checkpoints
+dataset
+results
+results_normalized/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
+
 
 # Model checkpoints and data
 checkpoints/
@@ -56,3 +61,4 @@ Thumbs.db
 *.npy
 *.npz
 *.log
+*.zip

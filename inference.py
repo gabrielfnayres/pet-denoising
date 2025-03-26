@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 
 # Configuration
 config = {
-    'input_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTs_full_2d',  # Directory containing input low-dose PET images
-    'output_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/results/inference',  # Directory to save synthesized high-dose PET images
-    'checkpoint': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints/consistency_model_checkpoint.pt',  # Path to model checkpoint
+    'input_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/dataset/train_mat',  # Directory containing input low-dose PET images
+    'output_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/results_normalized/inference',  # Directory to save synthesized high-dose PET images
+    'checkpoint': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_normalized/consistency_model_checkpoint.pt',  # Path to model checkpoint
     'batch_size': 1,  # Batch size for inference
     'num_steps': 3,  # Number of diffusion steps
     'eval_mode': False,  # Enable evaluation mode if ground truth is available
