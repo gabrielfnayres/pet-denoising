@@ -100,7 +100,7 @@ class CustomDataset(Dataset):
   #                  EnsureChannelFirstd(keys=["image","label"]),
                     
                     # Data normalization: -1 to 1
-                    ScaleIntensityd(keys=["image","label"], minv=-1, maxv=1.0),
+                    ScaleIntensityd(keys=["image","label"], minv=0.0, maxv=1.0),
                     
                     # Pad or crop all images to a uniform size
                     ResizeWithPadOrCropd(
@@ -137,8 +137,8 @@ class CustomDataset(Dataset):
         img_path, class_name = self.data[idx]
         cao = scipy.io.loadmat(img_path)
         
-        image_data = cao['img'][:, :128, :]
-        label_data = cao['img'][:, 128:, :]
+        image_data = cao['img'][:, 0:128, :]
+        label_data = cao['img'][:, 128:256, :]
         
         # Add channel dimension if not present (shape should be [C,H,W])
         if image_data.ndim == 2:
@@ -422,8 +422,8 @@ def evaluate(Consistency_network, epoch, checkpoint_dir, data_loader1, best_loss
         return avg_loss
 
 # Enter your data folder
-training_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/dataset/train_mat/'], train_flag=True)
-testing_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/dataset/test_mat/'],train_flag=False)
+training_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTr_full_2d/'], train_flag=True)
+testing_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTs_full_2d/'],train_flag=False)
 
 # Enter your data reader parameters
 params = {'batch_size': BATCH_SIZE_TRAIN,
@@ -441,7 +441,7 @@ test_loader1 = torch.utils.data.DataLoader(testing_set1, **params)
 N_EPOCHS = 500
 
 # Set up checkpoint directory and paths
-checkpoint_dir = "/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_newdataset_normalized"
+checkpoint_dir = "/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_newdataset_normalized01"
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 

@@ -25,6 +25,7 @@ checkpoints
 dataset
 results
 results_normalized/
+halfdataset
 
 # Jupyter Notebook
 .ipynb_checkpoints
