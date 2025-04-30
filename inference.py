@@ -185,6 +185,7 @@ def diffusion_sampling(low_dose, model, consistency, device, num_steps=3):
     sampled_images = karras_sample(
         consistency,
         model,
+        x_start=low_dose,
         shape=low_dose.shape,
         condition=low_dose,
         sampler="multistep",
@@ -235,7 +236,7 @@ def main():
             filenames = batch['filename']
             
             # Generate high-dose images
-            high_dose_samples = inferer(low_dose, lambda x: diffusion_sampling(x, model, consistency, device, config['num_steps']))
+            high_dose_samples = inferer(low_dose, lambda x: diffusion_sampling(x, model, consistency,device, config['num_steps']))
             
             # Calculate metrics if in evaluation mode
             if config['eval_mode'] and 'label' in batch:

@@ -360,6 +360,7 @@ def karras_sample(
     shape,
     condition,
     steps,
+    x_start=None,
     clip_denoised=True,
     progress=False,
     callback=None,
@@ -384,7 +385,8 @@ def karras_sample(
     else:
         sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
 
-    x_T = generator.randn(*shape, device=device) * sigma_max
+    noise =generator.randn(*shape, device=device)
+    x_T = x_start + noise*0.5* sigma_max
 
     sample_fn = {
         "heun": sample_heun,
