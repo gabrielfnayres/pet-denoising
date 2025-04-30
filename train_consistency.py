@@ -69,7 +69,7 @@ spacing = (1,1)
 patch_num = 2
 channels = 1
 # Set up device configuration
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Here are the dataloader class if your data are .mat files which contains both image and label in a single file. For nii.gz files, see the next block.
@@ -100,7 +100,7 @@ class CustomDataset(Dataset):
   #                  EnsureChannelFirstd(keys=["image","label"]),
                     
                     # Data normalization: -1 to 1
-                    ScaleIntensityd(keys=["image","label"], minv=0.0, maxv=1.0),
+                    ScaleIntensityd(keys=["image","label"], minv=-1, maxv=1.0),
                     
                     # Pad or crop all images to a uniform size
                     ResizeWithPadOrCropd(
@@ -137,8 +137,8 @@ class CustomDataset(Dataset):
         img_path, class_name = self.data[idx]
         cao = scipy.io.loadmat(img_path)
         
-        image_data = cao['img'][:, 0:128, :]
-        label_data = cao['img'][:, 128:256, :]
+        image_data = cao['img'][:, :128, :]
+        label_data = cao['img'][:, 128:, :]
         
         # Add channel dimension if not present (shape should be [C,H,W])
         if image_data.ndim == 2:
@@ -422,8 +422,8 @@ def evaluate(Consistency_network, epoch, checkpoint_dir, data_loader1, best_loss
         return avg_loss
 
 # Enter your data folder
-training_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTr_full_2d/'], train_flag=True)
-testing_set1 = CustomDataset(['/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTs_full_2d/'],train_flag=False)
+training_set1 = CustomDataset([r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\dataset\train_mat\\"], train_flag=True)
+testing_set1 = CustomDataset([r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\dataset\test_mat\\"],train_flag=False)
 
 # Enter your data reader parameters
 params = {'batch_size': BATCH_SIZE_TRAIN,
@@ -441,7 +441,7 @@ test_loader1 = torch.utils.data.DataLoader(testing_set1, **params)
 N_EPOCHS = 500
 
 # Set up checkpoint directory and paths
-checkpoint_dir = "/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_newdataset_normalized01"
+checkpoint_dir = r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\checkpoints_newdataset_normalized"
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
 
@@ -456,7 +456,26 @@ train_loss_history, test_loss_history = [], []
 # Load checkpoint if exists
 if os.path.exists(checkpoint_path):
     print(f'Loading checkpoint from {checkpoint_path}')
-    checkpoint = torch.load(checkpoint_path)
+    try:
+        # First try with weights_only=False (less secure but compatible with older checkpoints)
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
+        print("Successfully loaded checkpoint with weights_only=False")
+    except Exception as e:
+        print(f"Error loading checkpoint with weights_only=False: {e}")
+        # Second approach: Add the specific global to the safe list
+        try:
+            import numpy as np
+            from torch.serialization import add_safe_globals
+            # Add numpy.core.multiarray.scalar to the safe globals list
+            add_safe_globals(['numpy.core.multiarray.scalar'])
+            checkpoint = torch.load(checkpoint_path)
+            print("Successfully loaded checkpoint after adding safe globals")
+        except Exception as e2:
+            print(f"Error with second approach: {e2}")
+            print("Trying one more approach with map_location...")
+            # Third approach: Try with map_location
+            checkpoint = torch.load(checkpoint_path, map_location=device)
+            print("Successfully loaded checkpoint with map_location")
     Consistency_network.load_state_dict(checkpoint['model_state_dict'])
     Consistency_model_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     global_step = checkpoint['global_step']

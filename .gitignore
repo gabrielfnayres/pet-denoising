@@ -40,7 +40,7 @@ data/
 venv/
 env/
 ENV/
-
+pet_output
 # IDE
 .idea/
 .vscode/
@@ -63,3 +63,7 @@ Thumbs.db
 *.npz
 *.log
 *.zip
+
+checkpoints_newdataset_normalized/
+
+checkpoints_newdataset_normalized01/

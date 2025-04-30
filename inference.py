@@ -13,16 +13,17 @@ import matplotlib.pyplot as plt
 
 # Configuration
 config = {
-    'input_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/dataset/train_mat',  # Directory containing input low-dose PET images
-    'output_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/results_normalized/inference',  # Directory to save synthesized high-dose PET images
-    'checkpoint': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_normalized/consistency_model_checkpoint.pt',  # Path to model checkpoint
-    'batch_size': 1,  # Batch size for inference
-    'num_steps': 3,  # Number of diffusion steps
-    'eval_mode': False,  # Enable evaluation mode if ground truth is available
+    'input_dir': r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\dataset\train_mat\\",  # Directory containing input low-dose PET images
+    'output_dir': r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\results\inference",  # Directory to save synthesized high-dose PET images
+'checkpoint': r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\checkpoints_newdataset_normalized\consistency_model_best.pt",  # Path to model checkpoint
+
+'batch_size': 1,  # Batch size for inference
+'num_steps': 3,  # Number of diffusion steps
+'eval_mode': False,  # Enable evaluation mode if ground truth is available
 }
 from monai.transforms import (
-    Compose,
-    ResizeWithPadOrCropd,
+Compose,
+ResizeWithPadOrCropd,
     ToTensord,
     ScaleIntensityd
 )
@@ -69,7 +70,7 @@ class InferenceDataset:
         self.data = []
         print(f"Found {len(files_list)} files")
         for img_path in files_list:
-            class_name = img_path.split("/")[-1]
+            class_name = os.path.basename(img_path)  # Correctly extracts the filename
             self.data.append([img_path, class_name])
 
         self.transforms = Compose([
@@ -92,9 +93,8 @@ class InferenceDataset:
         cao = scipy.io.loadmat(img_path)
         
         # Convert data to numpy array and ensure it's 2D
-        image_data = cao['image'] if 'image' in cao else cao['data']
-        label_data = cao['label'] if ('label' in cao and self.eval_mode) else None
-        
+        image_data = cao['img'][:, :128, :]
+        label_data = cao['img'][:, 128:, :]       
         # Add channel dimension if not present (shape should be [C,H,W])
         if image_data.ndim == 2:
             image_data = image_data[np.newaxis, ...]
@@ -199,7 +199,7 @@ def main():
     os.makedirs(config['output_dir'], exist_ok=True)
 
     # Set up device
-    device = torch.device("mps")
+    device = torch.device("cuda")
     print(f"Using device: {device}")
 
     # Initialize model and consistency

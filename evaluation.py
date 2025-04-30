@@ -20,17 +20,34 @@ from Network.Diffusion_model_Unet_2d import UNetModel
 
 # Configuration
 config = {
-    'test_data_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/data/pet_38_aligned/imagesTs_full_2d',
-    'results_dir': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/results_normalized/evaluation',
-    'checkpoint': '/Users/fnayres/upenn/Full-dose-Whole-body-PET-Synthesis-from-Low-dose-PET-Using-Consistency-Model/checkpoints_normalized/consistency_model_checkpoint.pt',
-    'batch_size': 1,
-    'num_steps': 3,
+'test_data_dir': r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\dataset\test_mat\\",
+'results_dir': r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\results\inference",
+'checkpoint':  r"D:\Users\UFPB\gabriel ayres\New folder\pet-denoising\checkpoints_newdataset_normalized\consistency_model_best.pt",
+'batch_size': 1,
+'num_steps': 3,
 }
+
+def to_numpy(tensor_or_array):
+    """Safely convert a tensor or array to a numpy array"""
+    if isinstance(tensor_or_array, torch.Tensor):
+        return tensor_or_array.cpu().numpy()
+    elif isinstance(tensor_or_array, np.ndarray):
+        return tensor_or_array
+    else:
+        return np.array(tensor_or_array)
 
 def calculate_metrics(pred, target):
     """Calculate comprehensive image quality metrics"""
-    pred = pred.squeeze().cpu().numpy()
-    target = target.squeeze().cpu().numpy()
+    # Convert PyTorch tensors to numpy arrays if needed
+    if isinstance(pred, torch.Tensor):
+        pred = pred.squeeze().cpu().numpy()
+    elif isinstance(pred, np.ndarray) and pred.ndim > 2:
+        pred = np.squeeze(pred)
+        
+    if isinstance(target, torch.Tensor):
+        target = target.squeeze().cpu().numpy()
+    elif isinstance(target, np.ndarray) and target.ndim > 2:
+        target = np.squeeze(target)
     
     # Mean Absolute Error
     mae = np.mean(np.abs(pred - target))
@@ -192,7 +209,54 @@ def evaluate_model(model, consistency, dataset, device, num_steps=3, save_dir=No
             metrics_list.append(metrics)
             
             if save_dir:
-                # Save the results
+                # Save the results as images
+                base_name = os.path.splitext(filename)[0]
+                
+                # Convert tensors to numpy arrays and scale to 0-255 for saving as images
+                low_dose_np = low_dose.squeeze().cpu().numpy()
+                high_dose_np = high_dose.squeeze().cpu().numpy()
+                prediction_np = prediction.squeeze().cpu().numpy()
+                
+                # Normalize to 0-1 range if needed
+                def normalize_for_display(img):
+                    img_min, img_max = img.min(), img.max()
+                    if img_max > img_min:
+                        return (img - img_min) / (img_max - img_min)
+                    return img
+                
+                low_dose_np = normalize_for_display(low_dose_np)
+                high_dose_np = normalize_for_display(high_dose_np)
+                prediction_np = normalize_for_display(prediction_np)
+                
+                # Save individual images
+                plt.imsave(os.path.join(save_dir, f"input_{base_name}.png"), low_dose_np, cmap='gray')
+                plt.imsave(os.path.join(save_dir, f"ground_truth_{base_name}.png"), high_dose_np, cmap='gray')
+                plt.imsave(os.path.join(save_dir, f"synthesized_{base_name}.png"), prediction_np, cmap='gray')
+                
+                # Create and save a comparison visualization
+                plt.figure(figsize=(15, 5))
+                plt.subplot(131)
+                plt.imshow(low_dose_np, cmap='gray')
+                plt.title('Low-dose PET')
+                plt.axis('off')
+                
+                plt.subplot(132)
+                plt.imshow(prediction_np, cmap='gray')
+                plt.title(f'Synthesized PET\nPSNR: {metrics["PSNR"]:.2f}, SSIM: {metrics["SSIM"]:.4f}')
+                plt.axis('off')
+                
+                plt.subplot(133)
+                plt.imshow(high_dose_np, cmap='gray')
+                plt.title('Ground Truth (Full-dose)')
+                plt.axis('off')
+                
+                plt.tight_layout()
+                vis_dir = os.path.join(save_dir, 'visualizations')
+                os.makedirs(vis_dir, exist_ok=True)
+                plt.savefig(os.path.join(vis_dir, f'comparison_{base_name}.png'))
+                plt.close()
+                
+                # Save the results as .mat file for further analysis
                 result_dict = {
                     'low_dose': low_dose.cpu().numpy(),
                     'high_dose': high_dose.cpu().numpy(),
@@ -231,21 +295,381 @@ def main():
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
     
+    # Load model
+    model, consistency = setup_model(config['checkpoint'], device)
+    
     # Create dataset
     dataset = EvaluationDataset(config['test_data_dir'])
     
-    # Setup model
-    model, consistency = setup_model(config['checkpoint'], device)
-    
-    # Run evaluation
-    results = evaluate_model(
-        model,
-        consistency,
-        dataset,
-        device,
+    # Evaluate model
+    results_df = evaluate_model(
+        model=model,
+        consistency=consistency,
+        dataset=dataset,
+        device=device,
         num_steps=config['num_steps'],
         save_dir=config['results_dir']
     )
+    
+    # Save metrics to CSV
+    if results_df is not None:
+        metrics_file = os.path.join(config['results_dir'], 'metrics.csv')
+        results_df.to_csv(metrics_file, index=False)
+        print(f"Metrics saved to {metrics_file}")
+
+def evaluate_synthesized_images(results_dir, output_csv=None, visualize=False):
+    """
+    Evaluate synthesized PET images against ground truth using PSNR and SSIM metrics
+    
+    Args:
+        results_dir: Directory containing input_ and synthesized_ images
+        output_csv: Path to save metrics as CSV file (optional)
+        visualize: Whether to generate visualization plots
+    
+    Returns:
+        DataFrame with evaluation metrics
+    """
+    print(f"Evaluating synthesized images in {results_dir}")
+    
+    # Get all input image files
+    input_files = natsorted(glob.glob(os.path.join(results_dir, "input_*.png")), key=lambda y: y.lower())
+    
+    # Extract base filenames to match with synthesized images
+    pattern = re.compile(r'input_(.*)\.png')
+    
+    metrics_list = []
+    
+    # Determine naming pattern for synthesized images
+    synthesized_pattern = "synthesized_{}.png"  # Default pattern
+    
+    # Check for alternative naming patterns if needed
+    alt_patterns = ["synth_{}.png", "pred_{}.png", "output_{}.png"]
+    
+    for input_file in tqdm(input_files, desc="Processing images"):
+        match = pattern.search(os.path.basename(input_file))
+        if not match:
+            continue
+            
+        base_name = match.group(1)
+        
+        # Try to find the synthesized image with different possible naming patterns
+        synthesized_file = None
+        for pattern_template in [synthesized_pattern] + alt_patterns:
+            synth_name = pattern_template.format(base_name)
+            potential_file = os.path.join(results_dir, synth_name)
+            if os.path.exists(potential_file):
+                synthesized_file = potential_file
+                break
+        
+        if synthesized_file is None:
+            print(f"Warning: No synthesized image found for {os.path.basename(input_file)}")
+            continue
+        
+        # Load images
+        try:
+            # For PNG images
+            input_img = np.array(Image.open(input_file).convert('L')) / 255.0
+            synth_img = np.array(Image.open(synthesized_file).convert('L')) / 255.0
+            
+            # According to the memory, the low-dose PET is in the first half and full-dose in the second half
+            # Extract ground truth from the input image (if applicable)
+            if input_img.shape[1] == 256 and input_img.shape[0] == 128:  # Check if image has both low and full dose
+                low_dose = input_img[:, :128]  # First half is low-dose
+                ground_truth = input_img[:, 128:]  # Second half is full-dose (ground truth)
+            else:
+                # If the input image doesn't contain the ground truth, try to find it separately
+                ground_truth_file = os.path.join(results_dir, f"ground_truth_{base_name}.png")
+                if os.path.exists(ground_truth_file):
+                    ground_truth = np.array(Image.open(ground_truth_file).convert('L')) / 255.0
+                else:
+                    print(f"Warning: No ground truth found for {os.path.basename(input_file)}")
+                    continue
+            
+            # Calculate metrics
+            metrics = calculate_metrics(synth_img, ground_truth)
+            metrics['filename'] = os.path.basename(input_file)
+            metrics_list.append(metrics)
+            
+            if visualize and len(metrics_list) % 10 == 0:  # Visualize every 10th image
+                plt.figure(figsize=(15, 5))
+                plt.subplot(131)
+                plt.imshow(low_dose, cmap='gray')
+                plt.title('Low-dose PET')
+                plt.subplot(132)
+                plt.imshow(synth_img, cmap='gray')
+                plt.title(f'Synthesized PET\nPSNR: {metrics["PSNR"]:.2f}, SSIM: {metrics["SSIM"]:.4f}')
+                plt.subplot(133)
+                plt.imshow(ground_truth, cmap='gray')
+                plt.title('Ground Truth (Full-dose)')
+                plt.tight_layout()
+                
+                # Save visualization
+                vis_dir = os.path.join(results_dir, 'visualizations')
+                os.makedirs(vis_dir, exist_ok=True)
+                plt.savefig(os.path.join(vis_dir, f'vis_{base_name}.png'))
+                plt.close()
+                
+        except Exception as e:
+            print(f"Error processing {os.path.basename(input_file)}: {e}")
+    
+    # Compile results
+    if metrics_list:
+        df = pd.DataFrame(metrics_list)
+        
+        # Calculate average metrics
+        avg_metrics = {
+            'PSNR': df['PSNR'].mean(),
+            'SSIM': df['SSIM'].mean()
+        }
+        
+        print("\nAverage Metrics:")
+        print(f"PSNR: {avg_metrics['PSNR']:.4f}")
+        print(f"SSIM: {avg_metrics['SSIM']:.4f}")
+        
+        # Save to CSV if requested
+        if output_csv:
+            df.to_csv(output_csv, index=False)
+            print(f"Metrics saved to {output_csv}")
+        
+        return df
+    else:
+        print("No metrics calculated. Check if synthesized images exist.")
+        return None
+
+
+def evaluate_mat_files(mat_dir, output_csv=None, visualize=False, checkpoint_path='checkpoints/best_model.pth'):
+    """
+    Evaluate .mat files by generating synthesized images from low-dose PET and comparing with ground truth
+    
+    Args:
+        mat_dir: Directory containing .mat files
+        output_csv: Path to save metrics as CSV file (optional)
+        visualize: Whether to generate visualization plots
+        checkpoint_path: Path to model checkpoint
+    
+    Returns:
+        DataFrame with evaluation metrics
+    """
+    print(f"Evaluating .mat files in {mat_dir}")
+    
+    # Set device
+    device = torch.device("cuda")
+    print(f"Using device: {device}")
+    
+    # Load model
+    model, consistency = setup_model(checkpoint_path, device)
+    model.eval()
+    
+    # Get all .mat files
+    mat_files = natsorted(glob.glob(os.path.join(mat_dir, "*.mat")), key=lambda y: y.lower())
+    print(f"Found {len(mat_files)} .mat files")
+    
+    metrics_list = []
+    
+    # Create directory for visualizations if needed
+    if visualize:
+        vis_dir = os.path.join(os.path.dirname(mat_dir), "visualizations")
+        os.makedirs(vis_dir, exist_ok=True)
+    
+    # Process just one file first to debug
+    debug_mode = False
+    if debug_mode:
+        mat_files = mat_files[:1]
+    
+    for mat_file in tqdm(mat_files, desc="Processing .mat files"):
+        try:
+            # Load .mat file
+            data = scipy.io.loadmat(mat_file)
+            
+            # Extract data based on expected structure
+            if 'img' in data:
+                image_data = data['img']
+            elif 'image' in data:
+                image_data = data['image']
+            else:
+                print(f"Warning: Expected data structure not found in {os.path.basename(mat_file)}")
+                continue
+            
+            # Print debug info about the loaded data
+            print(f"Image data shape: {image_data.shape}")
+                
+            if image_data.shape[1] == 256 and image_data.shape[2] == 128:
+                # According to memory, low-dose is first half, full-dose is second half
+                low_dose = image_data[:, 0:128, :]  # Low-dose PET
+                ground_truth = image_data[:, 128:256, :]  # Full-dose PET (ground truth)
+                
+                # Make sure the data is in the right format (C, H, W)
+                if low_dose.shape[0] != 1 and low_dose.shape[0] != 3:
+                    # If the channel dimension is not at the front, rearrange
+                    low_dose = np.transpose(low_dose, (0, 2, 1))
+                    ground_truth = np.transpose(ground_truth, (0, 2, 1))
+                
+                # Normalize data to range [-1, 1] which is common for neural networks
+                low_dose = (low_dose - low_dose.min()) / (low_dose.max() - low_dose.min()) * 2 - 1
+                ground_truth = (ground_truth - ground_truth.min()) / (ground_truth.max() - ground_truth.min()) * 2 - 1
+                
+                # Print shapes after normalization
+                print(f"Low-dose shape: {low_dose.shape}, Ground truth shape: {ground_truth.shape}")
+                
+                # Convert to tensor and add batch dimension if needed
+                if isinstance(low_dose, np.ndarray):
+                    low_dose_tensor = torch.from_numpy(low_dose).float()
+                    if low_dose_tensor.dim() == 3:  # If it's already 3D (C, H, W)
+                        low_dose_tensor = low_dose_tensor.unsqueeze(0)  # Add batch dimension
+                else:
+                    low_dose_tensor = low_dose
+                
+                if isinstance(ground_truth, np.ndarray):
+                    ground_truth_tensor = torch.from_numpy(ground_truth).float()
+                    if ground_truth_tensor.dim() == 3:  # If it's already 3D (C, H, W)
+                        ground_truth_tensor = ground_truth_tensor.unsqueeze(0)  # Add batch dimension
+                else:
+                    ground_truth_tensor = ground_truth
+                
+                # Move tensors to device
+                low_dose_tensor = low_dose_tensor.to(device)
+                ground_truth_tensor = ground_truth_tensor.to(device)
+                
+                # Print tensor shapes
+                print(f"Low-dose tensor shape: {low_dose_tensor.shape}, Ground truth tensor shape: {ground_truth_tensor.shape}")
+                
+                # The model expects 2 channels, but we only have 1 channel
+                # Create a 2-channel input by duplicating the low_dose
+                if low_dose_tensor.shape[1] == 1:
+                    # Option 1: Duplicate the channel
+                    model_input = torch.cat([low_dose_tensor, low_dose_tensor], dim=1)
+                    # Option 2: Add a zero channel
+                    # zero_channel = torch.zeros_like(low_dose_tensor)
+                    # model_input = torch.cat([low_dose_tensor, zero_channel], dim=1)
+                else:
+                    # If it already has the right number of channels, use as is
+                    model_input = low_dose_tensor
+                
+                # Print model input shape
+                print(f"Model input shape: {model_input.shape}")
+                
+                # Generate synthesized image
+                try:
+                    with torch.no_grad():
+                        # Create a dummy timestep tensor (0 for inference)
+                        timesteps = torch.zeros(model_input.shape[0], dtype=torch.long, device=device)
+                        print(f"Timesteps shape: {timesteps.shape}, device: {timesteps.device}")
+                        print(f"Model input device: {model_input.device}")
+                        
+                        # Forward pass through the model
+                        synthesized_tensor = model(model_input, timesteps)
+                        print(f"Successfully ran model forward pass")
+                    
+                    # Print debug info about the output
+                    print(f"Model output type: {type(synthesized_tensor)}")
+                    if hasattr(synthesized_tensor, 'shape'):
+                        print(f"Model output shape: {synthesized_tensor.shape}")
+                    
+                    # Convert to numpy for metrics calculation using our helper function
+                    synthesized = to_numpy(synthesized_tensor)
+                    
+                    # Remove batch dimension if present
+                    if synthesized.ndim > 3:
+                        synthesized = synthesized[0]
+                except Exception as e:
+                    print(f"Error during model inference: {e}")
+                    continue  # Skip this file and move to the next one
+                
+                # Calculate metrics
+                # Make sure both arrays are numpy arrays for metric calculation
+                # Use our helper function to safely convert to numpy
+                synthesized = to_numpy(synthesized)
+                ground_truth = to_numpy(ground_truth)
+                    
+                metrics = calculate_metrics(synthesized, ground_truth)
+                metrics['filename'] = os.path.basename(mat_file)
+                metrics_list.append(metrics)
+                
+                # Generate visualization if requested
+                if visualize and len(metrics_list) % 50 == 0:  # Visualize every 50th image to avoid too many plots
+                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+                    
+                    # Normalize for display
+                    low_dose_display = (low_dose.squeeze() + 1) / 2
+                    synthesized_display = (synthesized.squeeze() + 1) / 2
+                    ground_truth_display = (ground_truth.squeeze() + 1) / 2
+                    
+                    axes[0].imshow(low_dose_display, cmap='gray')
+                    axes[0].set_title('Low-dose PET')
+                    axes[0].axis('off')
+                    
+                    axes[1].imshow(synthesized_display, cmap='gray')
+                    axes[1].set_title(f'Synthesized PET\nPSNR: {metrics["PSNR"]:.2f}, SSIM: {metrics["SSIM"]:.4f}')
+                    axes[1].axis('off')
+                    
+                    axes[2].imshow(ground_truth_display, cmap='gray')
+                    axes[2].set_title('Ground Truth (Full-dose PET)')
+                    axes[2].axis('off')
+                    
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(vis_dir, f"{os.path.basename(mat_file).split('.')[0]}_comparison.png"))
+                    plt.close()
+            else:
+                print(f"Warning: Unexpected image shape in {os.path.basename(mat_file)}: {image_data.shape}")
+                
+        except Exception as e:
+            print(f"Error processing {os.path.basename(mat_file)}: {e}")
+    
+    # Compile results
+    if metrics_list:
+        df = pd.DataFrame(metrics_list)
+        
+        # Calculate average metrics
+        avg_metrics = {
+            'PSNR': df['PSNR'].mean(),
+            'SSIM': df['SSIM'].mean()
+        }
+        
+        print("\nAverage Metrics:")
+        print(f"PSNR: {avg_metrics['PSNR']:.4f}")
+        print(f"SSIM: {avg_metrics['SSIM']:.4f}")
+        
+        # Save to CSV if requested
+        if output_csv:
+            df.to_csv(output_csv, index=False)
+            print(f"Metrics saved to {output_csv}")
+        
+        return df
+    else:
+        print("No metrics calculated. Check if .mat files exist and have the correct structure.")
+        return None
+
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Evaluate PET image synthesis")
+    parser.add_argument("--mode", type=str, default="evaluate_mat", choices=["inference", "evaluate", "evaluate_synthesized", "evaluate_mat"], 
+                        help="Mode of operation: inference, evaluate, evaluate_synthesized, or evaluate_mat")
+    parser.add_argument("--checkpoint", type=str, default="checkpoints_newdataset_normalized/consistency_model_best.pt", 
+                        help="Path to model checkpoint")
+    parser.add_argument("--data_dir", type=str, default="dataset/test_mat", 
+                        help="Directory containing test data")
+    parser.add_argument("--results_dir", type=str, default="results", 
+                        help="Directory to save results")
+    parser.add_argument("--output_csv", type=str, default="metrics.csv", 
+                        help="Path to save metrics as CSV file")
+    parser.add_argument("--visualize", action="store_true", 
+                        help="Generate visualization plots")
+    parser.add_argument("--num_steps", type=int, default=3,
+                        help="Number of sampling steps")
+    
+    args = parser.parse_args()
+    
+    if args.mode == "inference":
+        # Run inference
+        main(args.checkpoint, args.data_dir, args.results_dir)
+    elif args.mode == "evaluate":
+        # Evaluate model on test dataset
+        main(args.checkpoint, args.data_dir, args.results_dir, evaluate=True)
+    elif args.mode == "evaluate_synthesized":
+        # Evaluate synthesized images
+        evaluate_synthesized_images(args.results_dir, args.output_csv, args.visualize)
+    elif args.mode == "evaluate_mat":
+        # Evaluate .mat files directly
+        evaluate_mat_files(args.data_dir, args.output_csv, args.visualize, args.checkpoint)
